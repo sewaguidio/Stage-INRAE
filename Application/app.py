@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import sys
 import plotly.graph_objects as go
+import plotly.express as px
+import numpy as np
+
 
 st.set_page_config(page_title="Solver Dashboard", layout="wide")
 
@@ -17,6 +20,16 @@ nbnodes_postfix = "_nbnodes"
 
 filename_column = "Problem"
 probstat_columns = ["nbvar", "max_dom", "nbconstr", "max_arity"]
+
+
+def generate_solver_colors(solver_names):
+    palette = px.colors.qualitative.Plotly  # palette propre
+
+    colors = {}
+    for i, s in enumerate(solver_names):
+        colors[s] = palette[i % len(palette)]
+
+    return colors
 
 # ===================== CLASS =====================
 
@@ -245,6 +258,8 @@ def plot_cactus(solvers, rows, use_log=False):
             x=list(range(1, len(times) + 1)),
             y=list(times),
             mode="lines+markers",
+            marker=dict(color=solver_colors[s]),
+            line=dict(color=solver_colors[s]),
             name=f"{s} [{len(times)} solved]",
             customdata=list(problems),
             hovertemplate=
@@ -258,15 +273,14 @@ def plot_cactus(solvers, rows, use_log=False):
         title="Cactus Plot",
         xaxis_title="Solved Instances",
         yaxis_title="CPU Time (s)",
-        yaxis_type="log" if use_log else "linear"
+        yaxis_type="log" if use_log else "linear",
+        width=900,
+        height=600
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-import streamlit as st
+
 
 
 def plot_nodes(solvers, rows, use_log=False):
@@ -300,6 +314,8 @@ def plot_nodes(solvers, rows, use_log=False):
             x=list(range(1, len(values) + 1)),
             y=values,
             mode="lines+markers",
+            marker=dict(color=solver_colors[s]),
+            line=dict(color=solver_colors[s]),
             name=s,
             customdata=problems,
             hovertemplate=
@@ -320,7 +336,9 @@ def plot_nodes(solvers, rows, use_log=False):
         title="Nodes Comparison",
         yaxis_type="log" if use_log else "linear",
         xaxis_title="Instances",
-        yaxis_title="Nodes"
+        yaxis_title="Nodes",
+        width=900,
+        height=600
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -347,6 +365,8 @@ def plot_objective(solvers, rows, use_log=False):
             x=list(range(1, len(values) + 1)),
             y=values,
             mode="lines+markers+text",
+            marker=dict(color=solver_colors[s]),
+            line=dict(color=solver_colors[s]),
             name=s,
             customdata=problems,
             textposition="top center",
@@ -360,7 +380,9 @@ def plot_objective(solvers, rows, use_log=False):
         title="Objective Comparison",
         yaxis_type="log" if use_log else "linear",
         xaxis_title="Instances",
-        yaxis_title="Objective"
+        yaxis_title="Objective",
+        width=900,
+        height=600
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -375,6 +397,8 @@ def plot_lowerbound(solvers, rows, use_log=False):
             x=list(range(1, len(values) + 1)),
             y=values,
             mode="lines+markers+text",
+            marker=dict(color=solver_colors[s]),
+            line=dict(color=solver_colors[s]),
             name=s,
             customdata=problems,
             textposition="top center",
@@ -388,7 +412,9 @@ def plot_lowerbound(solvers, rows, use_log=False):
         title="Lower Bound Comparison",
         yaxis_type="log" if use_log else "linear",
         xaxis_title="Instances",
-        yaxis_title="Lower Bound"
+        yaxis_title="Lower Bound",
+        width=900,
+        height=600
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -411,6 +437,170 @@ def prepare_metric_data(rows, solver, metric):
 
     values, problems = zip(*sorted_pairs)
     return list(values), list(problems)
+
+
+def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
+
+
+    # ===================== INIT =====================
+    win1 = 0
+    win2 = 0
+    ties = 0
+
+    x_win1, y_win1, p_win1 = [], [], []
+    x_win2, y_win2, p_win2 = [], [], []
+    x_tie, y_tie, p_tie = [], [], []
+
+    # ===================== DATA =====================
+    for problem, _, results in rows:
+
+        r1 = results.get(solver1)
+        r2 = results.get(solver2)
+
+        if r1 is None or r2 is None:
+            continue
+
+        if r1.is_err() or r2.is_err():
+            continue
+
+        v1 = getattr(r1, metric)
+        v2 = getattr(r2, metric)
+
+        # skip invalid values (important for log scale)
+        if use_log and (v1 <= 0 or v2 <= 0):
+            continue
+
+        if metric == "bestbound" :
+
+            if v1 > v2:
+                win1 += 1
+                x_win1.append(v1)
+                y_win1.append(v2)
+                p_win1.append(problem)
+
+            elif v1 < v2:
+                win2 += 1
+                x_win2.append(v1)
+                y_win2.append(v2)
+                p_win2.append(problem)
+
+            else:
+                ties += 1
+                x_tie.append(v1)
+                y_tie.append(v2)
+                p_tie.append(problem)
+
+        else :
+            if v1 < v2:
+                win1 += 1
+                x_win1.append(v1)
+                y_win1.append(v2)
+                p_win1.append(problem)
+
+            elif v1 > v2:
+                win2 += 1
+                x_win2.append(v1)
+                y_win2.append(v2)
+                p_win2.append(problem)
+
+            else:
+                ties += 1
+                x_tie.append(v1)
+                y_tie.append(v2)
+                p_tie.append(problem)
+
+    total_points = win1 + win2 + ties
+    if total_points == 0:
+        st.warning("No data to display")
+        return
+
+    fig = go.Figure()
+
+    # ===================== SOLVER1 WINS =====================
+    fig.add_trace(go.Scatter(
+        x=x_win1,
+        y=y_win1,
+        mode="markers",
+        name=f"{solver1} wins ({win1})",
+        marker=dict(
+            color=solver_colors[solver1],
+            size=9,
+            symbol="circle"
+        ),
+        customdata=p_win1,
+        hovertemplate=
+            f"<b>{solver1}</b>: %{{x}}<br>" +
+            f"<b>{solver2}</b>: %{{y}}<br>" +
+            "Problem: %{customdata}<extra></extra>",
+    ))
+
+    # ===================== SOLVER2 WINS =====================
+    fig.add_trace(go.Scatter(
+        x=x_win2,
+        y=y_win2,
+        mode="markers",
+        name=f"{solver2} wins ({win2})",
+        marker=dict(
+            color=solver_colors[solver2],
+            size=9,
+            symbol="square"
+        ),
+        customdata=p_win2,
+        hovertemplate=
+            f"<b>{solver1}</b>: %{{x}}<br>" +
+            f"<b>{solver2}</b>: %{{y}}<br>" +
+            "Problem: %{customdata}<extra></extra>",
+    ))
+
+    # ===================== TIES =====================
+    fig.add_trace(go.Scatter(
+        x=x_tie,
+        y=y_tie,
+        mode="markers",
+        name=f"Ties ({ties})",
+        marker=dict(
+            color="gray",
+            size=9,
+            symbol="diamond"
+        ),
+        customdata=p_tie,
+        hovertemplate=
+            f"<b>{solver1}</b>: %{{x}}<br>" +
+            f"<b>{solver2}</b>: %{{y}}<br>" +
+            "Problem: %{customdata}<extra></extra>",
+    ))
+
+    # ===================== DIAGONAL x = y =====================
+    all_vals = x_win1 + x_win2 + x_tie + y_win1 + y_win2 + y_tie
+
+    min_val = min(v for v in all_vals if v > 0)
+    max_val = max(all_vals)
+
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val, max_val],
+        mode="lines",
+        line=dict(color="black", dash="dash", width=2),
+        name=f"{solver1} = {solver2}",
+        hoverinfo="skip"
+    ))
+
+    # ===================== LAYOUT =====================
+    fig.update_layout(
+        title=f"⚔️ Pairwise: {solver1} vs {solver2} ({metric})",
+        xaxis_type="log" if use_log else "linear",
+        yaxis_type="log" if use_log else "linear",
+        xaxis_title=solver1,
+        yaxis_title=solver2,
+        legend_title="Comparison",
+        template="plotly_white",
+        width=900,
+        height=600
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
 
 # ===================== UI =====================
 st.title("🏆 Solver Benchmark Dashboard")
@@ -447,9 +637,13 @@ if df is not None:
   
     # ===================== SIDEBAR =====================
 
+    solver_colors = generate_solver_colors(solver_names)
+
 
     # -------- SOLVER CHECKBOXES --------
     st.sidebar.markdown("### 🧠 Select Solvers")
+
+
 
     selected_solvers = []
 
@@ -465,6 +659,19 @@ if df is not None:
 
     st.sidebar.markdown(f"✔️ {len(selected_solvers)} solver(s) active")
 
+
+    st.subheader("🎨 Solver Colors")
+
+    st.markdown(
+        "<div style='display:flex;flex-wrap:wrap;gap:10px;'>"
+        + "".join([
+            f"<div style='background:{solver_colors[s]};padding:6px 10px;border-radius:6px;color:white;'>"
+            f"{s}</div>"
+            for s in selected_solvers
+        ])
+        + "</div>",
+        unsafe_allow_html=True
+    )
     # -------- SOLVER CHECKBOXES --------
     st.sidebar.markdown("### 📊 Options")
 
@@ -528,6 +735,26 @@ if df is not None:
         plot_lowerbound(selected_solvers, filtered_rows, use_log)
 
     # ===================== RANKING =====================
+
+    st.subheader("⚔️ Pairwise Comparison")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        solver1 = st.selectbox("Solver 1", selected_solvers)
+
+    with col2:
+        solver2 = st.selectbox("Solver 2", selected_solvers, index=1 if len(selected_solvers) > 1 else 0)
+
+    with col3:
+        metric = st.selectbox(
+            "Metric",
+            ["cputime", "nbnodes", "bestsol", "bestbound"]
+        )
+
+
+    if solver1 != solver2:
+        pairwise_plot(filtered_rows, solver1, solver2, metric, use_log)
 
     st.subheader("🏆 Ranking")
 
