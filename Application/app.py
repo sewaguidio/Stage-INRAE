@@ -413,15 +413,38 @@ def prepare_metric_data(rows, solver, metric):
     return list(values), list(problems)
 
 # ===================== UI =====================
-
 st.title("🏆 Solver Benchmark Dashboard")
 
-file = st.file_uploader("Upload CSV", type=["csv"])
+# ===================== DATA =====================
 
-if file:
-    df = pd.read_csv(file, delimiter=" ")
+st.markdown("### 📂 Data Source")
+
+data_choice = st.radio(
+    "Choose data source:",
+    ["Upload my data", "Use default dataset"]
+)
+
+df = None
+
+if data_choice == "Upload my data":
+    file = st.file_uploader("Upload CSV", type=["csv"])
+    if file:
+        df = pd.read_csv(file, delimiter=" ")
+
+else:
+    url = "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/results.csv"
+    st.info("Using default dataset from GitHub")
+    df = pd.read_csv(url, delimiter=" ")
+
+# ===================== MAIN APP =====================
+
+if df is not None:
+
     solver_names, rows = read_results(df)
 
+    st.success(f"Loaded {len(rows)} instances and {len(solver_names)} solvers")
+
+  
     # ===================== SIDEBAR =====================
 
 
