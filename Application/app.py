@@ -623,7 +623,7 @@ if data_choice == "Upload my data":
 
 else:
     url = "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/results.csv"
-    st.info("Using default dataset from GitHub")
+    st.info("Using default QAPLIB dataset from GitHub")
     df = pd.read_csv(url, delimiter=" ")
 
 # ===================== MAIN APP =====================
