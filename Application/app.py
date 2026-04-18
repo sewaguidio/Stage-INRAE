@@ -51,24 +51,6 @@ def read_csv_auto(path_or_buffer):
     raise ValueError("Could not detect delimiter")
 
 
-
-'''def read_csv_auto1(path_or_buffer):
-    seps = [None, ",", ";", "\t", " "]
-
-    for sep in seps:
-        try:
-            df = pd.read_csv(
-                path_or_buffer,
-                sep=sep,
-                engine="python"
-            )
-            if df.shape[1] > 1:
-                return df
-        except:
-            continue
-
-    raise ValueError("Impossible de détecter le délimiteur")'''
-
 def safe_get(row, col, default="?"):
     return row[col] if col in row else default
 
