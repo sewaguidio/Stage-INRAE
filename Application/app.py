@@ -51,6 +51,7 @@ def read_csv_auto(path_or_buffer):
     raise ValueError("Could not detect delimiter")
 
 
+
 def safe_get(row, col, default="?"):
     return row[col] if col in row else default
 
@@ -319,7 +320,7 @@ def plot_cactus(solvers, rows, use_log=False):
         xaxis_title="Solved Instances",
         yaxis_title="CPU Time (s)",
         yaxis_type="log" if use_log else "linear",
-        width=900,
+        #width=900,
         height=600
     )
 
@@ -382,7 +383,7 @@ def plot_nodes(solvers, rows, use_log=False):
         yaxis_type="log" if use_log else "linear",
         xaxis_title="Instances",
         yaxis_title="Nodes",
-        width=900,
+        #width=900,
         height=600
     )
 
@@ -426,7 +427,7 @@ def plot_objective(solvers, rows, use_log=False):
         yaxis_type="log" if use_log else "linear",
         xaxis_title="Instances",
         yaxis_title="Objective",
-        width=900,
+        #width=900,
         height=600
     )
 
@@ -458,7 +459,7 @@ def plot_lowerbound(solvers, rows, use_log=False):
         yaxis_type="log" if use_log else "linear",
         xaxis_title="Instances",
         yaxis_title="Lower Bound",
-        width=900,
+        #width=900,
         height=600
     )
 
@@ -639,7 +640,7 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
         yaxis_title=solver2,
         legend_title="Comparison",
         template="plotly_white",
-        width=900,
+        #width=900,
         height=600
     )
 
@@ -693,7 +694,7 @@ elif data_choice == "From URL":
 if df is not None:
     auto_cutoff = compute_dynamic_cutoff(df)
     default_cutoff = st.sidebar.number_input(
-        "Time",
+        "Time Limit",
         value=float(auto_cutoff)
     )
     solver_names, rows = read_results(df)
@@ -922,10 +923,19 @@ UNK: No solution returned
 """, unsafe_allow_html=True)
 
     
+# ===================== PAGINATION =====================
 
-    for problem, stats, results in filtered_rows:
+    if "display_limit" not in st.session_state:
+        st.session_state.display_limit = 20
 
-        # 👉 BEST is now dynamic based ONLY on selected solvers
+    display_limit = st.session_state.display_limit
+
+    visible_rows = filtered_rows[:display_limit]
+
+    # ===================== DISPLAY =====================
+
+    for problem, stats, results in visible_rows:
+
         best = get_best_result({s: results[s] for s in selected_solvers})
 
         with st.expander(f"🔎 {problem}", expanded=exp):
@@ -954,3 +964,17 @@ UNK: No solution returned
                         render_result_table(results[s], best),
                         unsafe_allow_html=True
                     )
+
+    # ===================== LOAD MORE =====================
+
+    if display_limit < len(filtered_rows):
+
+        if st.button("Load 20 more"):
+            st.session_state.display_limit += 20
+            st.rerun()
+
+    else:
+        st.info("All results loaded")
+        display_limit =len(filtered_rows)
+
+    st.caption(f"Showing {display_limit} / {len(filtered_rows)} problems")
