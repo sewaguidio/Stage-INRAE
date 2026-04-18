@@ -4,13 +4,14 @@ import sys
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
+import requests
+from io import StringIO
 
 
 st.set_page_config(page_title="Solver Dashboard", layout="wide")
 
 # ===================== CONSTANTS =====================
 
-default_cutoff = 1200
 
 bestsol_postfix = "_bestsol"
 cputime_postfix = "_cputime"
@@ -22,7 +23,69 @@ filename_column = "Problem"
 probstat_columns = ["nbvar", "max_dom", "nbconstr", "max_arity"]
 
 
-def generate_solver_colors(solver_names):
+
+
+def read_csv_auto(path_or_buffer):
+    seps = [None, ",", ";", "\t", r"\s+"]
+
+    # 👉 Handle URL manually
+    if isinstance(path_or_buffer, str) and path_or_buffer.startswith("http"):
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(path_or_buffer, headers=headers)
+            response.raise_for_status()
+            content = StringIO(response.text)
+        except Exception as e:
+            raise ValueError(f"URL error: {e}")
+    else:
+        content = path_or_buffer
+
+    for sep in seps:
+        try:
+            df = pd.read_csv(content, sep=sep, engine="python")
+            if df.shape[1] > 1:
+                return df
+        except:
+            continue
+
+    raise ValueError("Could not detect delimiter")
+
+
+
+'''def read_csv_auto1(path_or_buffer):
+    seps = [None, ",", ";", "\t", " "]
+
+    for sep in seps:
+        try:
+            df = pd.read_csv(
+                path_or_buffer,
+                sep=sep,
+                engine="python"
+            )
+            if df.shape[1] > 1:
+                return df
+        except:
+            continue
+
+    raise ValueError("Impossible de détecter le délimiteur")'''
+
+def safe_get(row, col, default="?"):
+    return row[col] if col in row else default
+
+def compute_dynamic_cutoff(df):
+    times = []
+    for col in df.columns:
+        if col.endswith(cputime_postfix):
+            times.extend(pd.to_numeric(df[col], errors="coerce"))
+    times = [t for t in times if pd.notna(t)]
+    return float(np.percentile(times, 95)) if times else 1200.0
+
+def generate_solver_colors(solvers):
+    palette = px.colors.qualitative.Plotly
+    return {s: palette[i % len(palette)] for i, s in enumerate(solvers)}
+
+
+def generate_solver_colors1(solver_names):
     palette = px.colors.qualitative.Plotly  # palette propre
 
     colors = {}
@@ -34,12 +97,12 @@ def generate_solver_colors(solver_names):
 # ===================== CLASS =====================
 
 class SolverResult:
-    def __init__(self, bestsol, cputime, status, bestbound, nbnodes):
+    def __init__(self, bestsol, cputime, status, bestbound="?", nbnodes="?"):
         self.bestsol_text = bestsol
         self.bestsol = int(float(bestsol)) if bestsol != "?" else sys.maxsize
 
-        self.bestbound = int(float(bestbound)) if bestbound != "?" else -sys.maxsize
-        self.nbnodes = int(nbnodes) if nbnodes != "?" else sys.maxsize
+        self.bestbound = None if bestbound == "?" else int(float(bestbound))
+        self.nbnodes = None if nbnodes == "?" else int(nbnodes)
 
         try:
             self.cputime = float(cputime)
@@ -49,8 +112,8 @@ class SolverResult:
         self.cputime_text = cputime
         self.status = status
 
-    def is_opt(self): return self.status == "OPT"
-    def is_feas(self): return self.status.startswith("FEAS")
+    def is_opt(self): return self.status == "OPT" or self.status == "SC"
+    def is_feas(self): return self.status.startswith("FEAS") or self.status.startswith("S")
     def is_timeout(self): return self.status == "UNK"
     def is_err(self): return self.cputime_text in ["MZN", "mem", "ARITY", "32-bit"]
 
@@ -83,16 +146,16 @@ def read_results(df):
 
     for _, row in df.iterrows():
         problem = row[filename_column]
-        stats = {k: int(row[k]) for k in probstat_columns}
+        stats = {k: int(row[k]) for k in probstat_columns if k in row}
 
         results = {}
         for s in solver_names:
             results[s] = SolverResult(
-                row[f"{s}{bestsol_postfix}"],
-                row[f"{s}{cputime_postfix}"],
-                row[f"{s}{status_postfix}"],
-                row[f"{s}{bestbound_postfix}"],
-                row[f"{s}{nbnodes_postfix}"],
+                safe_get(row, f"{s}{bestsol_postfix}"),
+                safe_get(row, f"{s}{cputime_postfix}"),
+                safe_get(row, f"{s}{status_postfix}"),
+                safe_get(row, f"{s}{bestbound_postfix}"),
+                safe_get(row, f"{s}{nbnodes_postfix}")
             )
 
         rows.append((problem, stats, results))
@@ -611,30 +674,50 @@ st.markdown("### 📂 Data Source")
 
 data_choice = st.radio(
     "Choose data source:",
-    ["Upload my data", "Use default dataset"]
+    ["Upload my data", "Use default dataset", "From URL"]
 )
 
 df = None
 
+# ===================== UPLOAD =====================
 if data_choice == "Upload my data":
     file = st.file_uploader("Upload CSV", type=["csv"])
     if file:
-        df = pd.read_csv(file, delimiter=" ")
+        df = read_csv_auto(file)
 
-else:
+# ===================== DEFAULT =====================
+elif data_choice == "Use default dataset":
     url = "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/results.csv"
     st.info("Using default QAPLIB dataset from GitHub")
-    df = pd.read_csv(url, delimiter=" ")
+    df = read_csv_auto(url)
+
+# ===================== CUSTOM URL =====================
+elif data_choice == "From URL":
+    url_input = st.text_input("Enter CSV URL")
+
+    if url_input:
+        try:
+            # fix common encoding issue
+            url_input = url_input.replace("%5C~", "~").replace("\\~", "~")
+
+            df = read_csv_auto(url_input)
+            st.success("Dataset loaded successfully")
+        except Exception as e:
+            st.error(f"Failed to load CSV: {e}")
+
 
 # ===================== MAIN APP =====================
 
 if df is not None:
-
+    auto_cutoff = compute_dynamic_cutoff(df)
+    default_cutoff = st.sidebar.number_input(
+        "Time",
+        value=float(auto_cutoff)
+    )
     solver_names, rows = read_results(df)
 
     st.success(f"Loaded {len(rows)} instances and {len(solver_names)} solvers")
 
-  
     # ===================== SIDEBAR =====================
 
     solver_colors = generate_solver_colors(solver_names)
@@ -713,29 +796,65 @@ if df is not None:
 
     # ===================== CACTUS =====================
 
+     # Detect optional columns
+    has_bestbound = any(col.endswith(bestbound_postfix) for col in df.columns)
+    has_nbnodes = any(col.endswith(nbnodes_postfix) for col in df.columns)
+
+    cols = ["cputime", "bestsol"]
+    tables = ["📈 Cactus Plot", "🎯 Objective"]
+    if has_bestbound :
+        cols.append("bestbound")
+        tables.append("🌳 Nodes")
+    if has_nbnodes :
+        cols.append("nbnodes")
+        tables.append("📉 Lower Bound")
+        
+    # ===================== ADVANCED PLOTS =====================
+
+    has_bestbound = any(col.endswith(bestbound_postfix) for col in df.columns)
+    has_nbnodes = any(col.endswith(nbnodes_postfix) for col in df.columns)
+
+    cols = ["cputime", "bestsol"]
+    tables = ["📈 Cactus Plot", "🎯 Objective"]
+
+    if has_nbnodes:
+        cols.append("nbnodes")
+        tables.append("🌳 Nodes")
+
+    if has_bestbound:
+        cols.append("bestbound")
+        tables.append("📉 Lower Bound")
 
     # ===================== ADVANCED PLOTS =====================
 
     st.subheader("📊 Advanced Analysis")
 
-    tab0, tab1, tab2, tab3 = st.tabs([
-        "📈 Cactus Plot",
-        "🌳 Nodes",
-        "🎯 Objective",
-        "📉 Lower Bound"
-    ])
+    tabs = st.tabs(tables)
 
-    with tab0:
+    tab_idx = 0
+
+    # --- Cactus ---
+    with tabs[tab_idx]:
         plot_cactus(selected_solvers, filtered_rows, use_log)
+    tab_idx += 1
 
-    with tab1:
-        plot_nodes(selected_solvers, filtered_rows, use_log)
-
-    with tab2:
+    # --- Objective ---
+    with tabs[tab_idx]:
         plot_objective(selected_solvers, filtered_rows, use_log)
+    tab_idx += 1
 
-    with tab3:
-        plot_lowerbound(selected_solvers, filtered_rows, use_log)
+    # --- Nodes (optional) ---
+    if has_nbnodes:
+        with tabs[tab_idx]:
+            plot_nodes(selected_solvers, filtered_rows, use_log)
+        tab_idx += 1
+
+    # --- Lower Bound (optional) ---
+    if has_bestbound:
+        with tabs[tab_idx]:
+            plot_lowerbound(selected_solvers, filtered_rows, use_log)
+        tab_idx += 1
+
 
     # ===================== RANKING =====================
 
@@ -752,7 +871,7 @@ if df is not None:
     with col3:
         metric = st.selectbox(
             "Metric",
-            ["cputime", "nbnodes", "bestsol", "bestbound"]
+            cols
         )
 
 
