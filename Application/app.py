@@ -82,9 +82,9 @@ def generate_solver_colors1(solver_names):
 class SolverResult:
     def __init__(self, bestsol, cputime, status, bestbound="?", nbnodes="?"):
         self.bestsol_text = bestsol
-        self.bestsol = int(float(bestsol)) if bestsol != "?" else sys.maxsize
+        self.bestsol = float(bestsol) if bestsol != "?" else sys.maxsize
 
-        self.bestbound = None if bestbound == "?" else int(float(bestbound))
+        self.bestbound = None if bestbound == "?" else float(bestbound)
         self.nbnodes = None if nbnodes == "?" else int(nbnodes)
 
         try:
