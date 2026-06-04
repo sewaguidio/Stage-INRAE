@@ -156,6 +156,8 @@ def compute_ranking(solver_names, rows):
     df["BB2"] = 0
     df["SCORE"] = 0.0
 
+
+
     # ===================== LOOP =====================
     for _, _, results in rows:
         # filter ONLY selected solvers (IMPORTANT)
@@ -646,10 +648,109 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
 
     st.plotly_chart(fig, use_container_width=True)
 
-
+COLUMN_DESCRIPTIONS = {
+    "OPT": "Number of instances where the solver proved optimality (OPT).",
+    "FEAS": "Number of instances where the solver found a feasible solution with no optimality proof (FEAS).",
+    "BEST": "Number of instances where the solver was the best according to (OPT > FEAS > objective > time).",
+    "BB1": "Best bound points (1.0): best bound without any optimality proof by competitors.",
+    "BB2": "Best bound points (0.5): best bound but optimality proven by another solver.",
+    "SCORE": "Global ranking score combining OPT, BB1 and BB2 contributions."
+}
 
 # ===================== UI =====================
 st.title("🏆 Solver Benchmark Dashboard")
+
+with st.expander("ℹ️ About this application", expanded=False):
+    st.markdown("""
+## 📌 Overview
+This dashboard compares constraint programming / optimization solvers on benchmark instances.
+
+You can:
+- Compare solvers globally and pairwise
+- Visualize performance (cactus plot, nodes, objective)
+- Explore detailed per-instance results
+- Rank solvers using multiple scoring rules
+
+---
+
+## 📂 Input data format
+
+The input is a CSV file where:
+
+### 1. One row = one problem instance
+
+### 2. Mandatory column
+- **Problem** (`str`)  
+  Name of the instance
+
+### 3. Problem statistics columns
+- `nbvar` *(int)* → number of variables  
+- `max_dom` *(int)* → maximum domain size  
+- `nbconstr` *(int)* → number of constraints  
+- `max_arity` *(int)* → maximum constraint arity  
+
+---
+
+## 🤖 Solver result columns
+
+Each solver `S` generates multiple columns with suffixes:
+
+| Column suffix | Meaning | Type |
+|------|--------|------|
+| `S_bestsol` | Best objective value found | float |
+| `S_cputime` | CPU time in seconds | float |
+| `S_status` | Execution status (OPT, FEAS, UNK, etc.) | string |
+| `S_bestbound` | Best lower bound | float |
+| `S_nbnodes` | Search tree nodes | int |
+
+---
+
+## 📊 Status meaning
+
+- **OPT** → Optimal solution proven  
+- **FEAS** → Feasible solution found  
+- **UNK** → Timeout or no result  
+- **ERROR** → Runtime or parsing issue  
+
+---
+
+
+## ⚙️ How to use the app
+
+1. Upload a CSV or load default dataset
+2. Select solvers in the sidebar
+3. Filter problems if needed
+4. Explore:
+   - 📈 Cactus plot (performance)
+   - 🎯 Objective evolution
+   - 🌳 Nodes / bounds (if available)
+5. Compare solvers pairwise
+6. Check global ranking
+
+---
+
+## 🔗 Competition
+
+Results are comparable with:
+
+👉  global ranking
+
+Solvers are compared using:
+- **OPT** = Optimal solution  
+- **FEAS** = Feasilbe solution with no optimality proof   
+- **BEST**  = Number of instances where the solver was the best according to (OPT > FEAS > objective > time) 
+
+
+👉 XCSP3 Competition  
+https://www.xcsp.org/competitions/
+
+Solvers are ranked using:
+- **OPT** = Optimal solution  +1
+- **BB1** = best bound with no optimality proof by others  → +1
+- **BB2**  = best bound but optimality proven by another solver  → +0.5
+
+
+""")
 
 # ===================== DATA =====================
 
@@ -861,16 +962,42 @@ if df is not None:
     if solver1 != solver2:
         pairwise_plot(filtered_rows, solver1, solver2, metric, use_log)
 
-    st.subheader("🏆 Ranking")
 
-    ranking_df = compute_ranking(selected_solvers, filtered_rows)
-    st.dataframe(ranking_df, use_container_width=True)
 
-    # ===================== GLOBAL TABLE =====================
-
+ # ===================== GLOBAL TABLE =====================
     st.subheader("📊 Global Comparison")
 
+    st.markdown("""
+    <table class="resultstable">
+    <tr><th class='title'>Key</th><th>Meaning</th></tr>
+
+    <tr><td class='title'>OPT</td><td>Number of instances where the solver proved optimality (OPT status).</td></tr>
+
+    <tr><td class='title'>FEAS</td><td>Number of instances where the solver found a feasible solution without proving optimality.</td></tr>
+
+    <tr><td class='title'>Timeout</td><td>Number of instances where the solver did not finish within the time limit.</td></tr>
+
+    <tr><td class='title'>Error</td><td>Number of instances where the solver failed due to runtime or parsing errors.</td></tr>
+
+    <tr><td class='title'>Total Time</td><td>Total CPU time spent by the solver across all instances.</td></tr>
+
+    <tr><td class='title'>Best</td><td>Number of instances where the solver was the best performer according to OPT > FEAS > objective value > CPU time.</td></tr>
+
+    </table>
+    <br>
+    """, unsafe_allow_html=True)
+
     global_df = compute_global_table(selected_solvers, filtered_rows)
+
+    ranking_df = compute_ranking(selected_solvers, filtered_rows)
+
+    # 👉 ADD ONLY BEST COLUMN
+    global_df = global_df.merge(
+        ranking_df[["BEST"]],
+        left_on="solver",
+        right_index=True,
+        how="left"
+    )
 
     colA, colB = st.columns([2, 1])
 
@@ -887,7 +1014,50 @@ if df is not None:
 
     global_df = global_df.sort_values(sort_col, ascending=False)
 
-    st.dataframe(global_df, use_container_width=True)
+    st.dataframe(
+        global_df,
+        use_container_width=True,
+        column_config={
+            col: st.column_config.Column(
+                label=col,
+                help=COLUMN_DESCRIPTIONS.get(col, "")
+            )
+            for col in global_df.columns
+        }
+    )
+    # ===================== XCSP3 =====================
+
+    st.subheader("🏆 XCSP3 Competition Ranking")
+
+    st.markdown(
+        "🔗 Official competition website: "
+        "[XCSP3 Competition](https://www.xcsp.org/competitions/)"
+    )
+
+    st.markdown("""
+<table class="resultstable">
+<tr><th class='title'>Key</th><th>Meaning</th></tr>
+<tr><td class='title'>OPT </td><td>Optimal solution →  +1</td></tr>
+<tr><td class='title'>BB1</td><td>best bound with no optimality proof by others  → +1</td></tr>
+<tr><td class='title'>BB2</td><td>best bound but optimality proven by another solver  → +0.5</td></tr>
+<tr><td class='title'>SCORE</td><td>OPT + BB1 + BB2</td></tr>
+</table>
+<br>
+""", unsafe_allow_html=True)
+
+    ranking_df = compute_ranking(selected_solvers, filtered_rows)
+    ranking_df = ranking_df.drop(columns=["BEST","FEAS"], errors="ignore")
+    st.dataframe(
+        ranking_df,
+        use_container_width=True,
+        column_config={
+            col: st.column_config.Column(
+                label=col,
+                help=COLUMN_DESCRIPTIONS.get(col, "")
+            )
+            for col in ranking_df.columns
+        }
+    )
 
     # ===================== LEGEND =====================
 
