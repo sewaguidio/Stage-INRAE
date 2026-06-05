@@ -208,7 +208,7 @@ Clone the repository:
 
 ```bash
 git clone "https://github.com/sewaguidio/Stage-INRAE.git"
-cd "Stage-INRAE.git/Application"
+cd "Stage-INRAE/Application"
 ```
 
 Install dependencies:
