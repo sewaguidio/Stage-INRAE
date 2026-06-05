@@ -81,7 +81,7 @@ For each solver `S`, the following columns may be provided:
 
 ## Cactus Plot
 
-Displays the cumulative number of solved instances as a function of CPU time.
+Displays the number of solved instances as a function of CPU time.
 
 Useful for comparing overall solver efficiency.
 
@@ -207,8 +207,8 @@ The solver provides the best known bound among all competitors but another solve
 Clone the repository:
 
 ```bash
-git clone <repository-url>
-cd <repository-name>
+git clone "https://github.com/sewaguidio/Stage-INRAE.git"
+cd "Stage-INRAE.git/Application"
 ```
 
 Install dependencies:
@@ -245,12 +245,3 @@ The dashboard supports:
 - Performance Profiling
 
 ---
-
-# 📜 License
-
-
----
-
-# 👨‍💻 Author
-
-Developed for benchmarking and analyzing optimization and constraint programming solvers.
