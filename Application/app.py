@@ -981,7 +981,7 @@ if df is not None:
 
     <tr><td class='title'>Total Time</td><td>Total CPU time spent by the solver across all instances.</td></tr>
 
-    <tr><td class='title'>Best</td><td>Number of instances where the solver was the best performer according to OPT > FEAS > objective value > CPU time.</td></tr>
+    <tr><td class='title'>Best</td><td>Number of instances where the solver was the best performer according to STATUS > OBJECTIVE VALUE > CPU TIME.</td></tr>
 
     </table>
     <br>
@@ -1040,7 +1040,7 @@ if df is not None:
 <tr><td class='title'>OPT </td><td>Optimal solution →  +1</td></tr>
 <tr><td class='title'>BB1</td><td>best bound with no optimality proof by others  → +1</td></tr>
 <tr><td class='title'>BB2</td><td>best bound but optimality proven by another solver  → +0.5</td></tr>
-<tr><td class='title'>SCORE</td><td>OPT + BB1 + BB2</td></tr>
+<tr><td class='title'>SCORE</td><td>OPT + BB1 + 0.5 * BB2</td></tr>
 </table>
 <br>
 """, unsafe_allow_html=True)
