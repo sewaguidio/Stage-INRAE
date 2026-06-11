@@ -99,6 +99,7 @@ class SolverResult:
     def is_feas(self): return self.status.startswith("FEAS") or self.status.startswith("S")
     def is_timeout(self): return self.status == "UNK"
     def is_err(self): return self.cputime_text in ["MZN", "mem", "ARITY", "32-bit"]
+    def no_lb(self): return self.bestbound == None
 
 # ===================== BEST =====================
 
@@ -108,7 +109,8 @@ def get_best_result(results):
         key=lambda r: (
             0 if r.is_opt() else 1 if r.is_feas() else 2,
             r.bestsol,
-            r.cputime
+            r.cputime,
+            0 if r.no_lb() else -r.bestbound
         )
     )
 
