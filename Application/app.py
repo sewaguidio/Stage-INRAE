@@ -96,10 +96,11 @@ class SolverResult:
         self.status = status
 
     def is_opt(self): return self.status == "OPT" or self.status == "SC"
-    def is_feas(self): return self.status.startswith("FEAS") or self.status.startswith("S")
+    def is_feas(self): return self.status.startswith("FEAS") or self.status == "S"
     def is_timeout(self): return self.status == "UNK"
     def is_err(self): return self.cputime_text in ["MZN", "mem", "ARITY", "32-bit"]
-    def no_lb(self): return self.bestbound == None
+    def no_lb(self): return self.bestbound == None,
+    def no_nodes(self): return self.nbnodes == None
 
 # ===================== BEST =====================
 
@@ -110,7 +111,8 @@ def get_best_result(results):
             0 if r.is_opt() else 1 if r.is_feas() else 2,
             r.bestsol,
             r.cputime,
-            0 if r.no_lb() else -r.bestbound
+            0 if r.no_lb() else -r.bestbound,
+            0 if r.no_nodes() else r.nbnodes
         )
     )
 
@@ -653,7 +655,7 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
 COLUMN_DESCRIPTIONS = {
     "OPT": "Number of instances where the solver proved optimality (OPT).",
     "FEAS": "Number of instances where the solver found a feasible solution with no optimality proof (FEAS).",
-    "BEST": "Number of instances where the solver was the best according to (OPT > FEAS > objective > time).",
+    "BEST": "Number of instances where the solver was the best according to (STATUS > OBJECTIVE > TIME > LOWER BOUND > NB NODES).",
     "BB1": "Best bound points (1.0): best bound without any optimality proof by competitors.",
     "BB2": "Best bound points (0.5): best bound but optimality proven by another solver.",
     "SCORE": "Global ranking score combining OPT, BB1 and BB2 contributions."
@@ -740,7 +742,7 @@ Results are comparable with:
 Solvers are compared using:
 - **OPT** = Optimal solution  
 - **FEAS** = Feasilbe solution with no optimality proof   
-- **BEST**  = Number of instances where the solver was the best according to (OPT > FEAS > objective > time) 
+- **BEST**  = Number of instances where the solver was the best according to (STATUS > OBJECTIVE > TIME > LOWER BOUND > NB NODES)
 
 
 👉 XCSP3 Competition  
@@ -983,7 +985,7 @@ if df is not None:
 
     <tr><td class='title'>Total Time</td><td>Total CPU time spent by the solver across all instances.</td></tr>
 
-    <tr><td class='title'>Best</td><td>Number of instances where the solver was the best performer according to STATUS > OBJECTIVE VALUE > CPU TIME.</td></tr>
+    <tr><td class='title'>Best</td><td>Number of instances where the solver was the best performer according to STATUS > OBJECTIVE VALUE > CPU TIME > LOWER BOUND > NB NODES.</td></tr>
 
     </table>
     <br>
