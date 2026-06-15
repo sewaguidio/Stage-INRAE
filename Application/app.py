@@ -775,8 +775,21 @@ if data_choice == "Upload my data":
 
 # ===================== DEFAULT =====================
 elif data_choice == "Use default dataset":
-    url = "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/results.csv"
-    st.info("Using default QAPLIB dataset from GitHub")
+
+    problems = {
+        "Quadratic Assignment Problem (QAP)": "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/QAP_results.csv",
+        "Lotsizing Problem": "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/Lotsizing_results.csv"
+    }
+
+    selected_problem = st.selectbox(
+        "Choose a problem",
+        list(problems.keys())
+    )
+
+    url = problems[selected_problem]
+
+    st.info(f"Using dataset for: {selected_problem}")
+
     df = read_csv_auto(url)
 
 # ===================== CUSTOM URL =====================
