@@ -777,7 +777,7 @@ if data_choice == "Upload my data":
 elif data_choice == "Use default dataset":
 
     problems = {
-        "Quadratic Assignment Problem (QAP)": "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/QAP_results.csv",
+        "Quadratic Assignment Problem (QAP)": "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/QAP_results1.csv",
         "Lotsizing Problem": "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/Lotsizing_results.csv"
     }
 
