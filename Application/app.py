@@ -111,8 +111,8 @@ def get_best_result(results):
             0 if r.is_opt() else 1 if r.is_feas() else 2,
             r.bestsol,
             r.cputime,
-            0 if (r.no_lb() or r.bestbound == 0) else 1.0/r.bestbound
-            #0 if r.no_nodes() else r.nbnodes
+            0 if (r.no_lb() or r.bestbound == 0) else (1.0/r.bestbound),
+            0 if r.no_nodes() else r.nbnodes
         )
     )
 
