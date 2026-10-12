@@ -85,7 +85,7 @@ class SolverResult:
         self.bestsol = float(bestsol) if bestsol != "?" else sys.maxsize
 
         self.bestbound = None if bestbound == "?" else float(bestbound)
-        self.nbnodes = None if nbnodes == "?" else int(nbnodes)
+        self.nbnodes = None if nbnodes == "?" else float(nbnodes)
 
         try:
             self.cputime = float(cputime)
@@ -109,10 +109,10 @@ def get_best_result(results):
         results.values(),
         key=lambda r: (
             0 if r.is_opt() else 1 if r.is_feas() else 2,
-            r.bestsol,
-            r.cputime,
-            0 if r.no_lb()  else (-1 * r.bestbound),
-            0 if r.no_nodes() else r.nbnodes
+            r.bestsol if r.bestsol is not None else float("inf"),
+            r.cputime if r.cputime is not None else float("inf"),
+            -r.bestbound if not r.no_lb() else float("inf"),
+            r.nbnodes if not r.no_nodes() else float("inf"),
         )
     )
 
