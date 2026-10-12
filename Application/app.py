@@ -99,7 +99,7 @@ class SolverResult:
     def is_feas(self): return self.status.startswith("FEAS") or self.status == "S"
     def is_timeout(self): return self.status == "UNK"
     def is_err(self): return self.cputime_text in ["MZN", "mem", "ARITY", "32-bit"]
-    def no_lb(self): return self.bestbound == None,
+    def no_lb(self): return self.bestbound == None
     def no_nodes(self): return self.nbnodes == None
 
 # ===================== BEST =====================
