@@ -6,28 +6,28 @@ import plotly.express as px
 import numpy as np
 import requests
 from io import StringIO
-
-
+ 
+ 
 st.set_page_config(page_title="Solver Dashboard", layout="wide")
-
+ 
 # ===================== CONSTANTS =====================
-
-
+ 
+ 
 bestsol_postfix = "_bestsol"
 cputime_postfix = "_cputime"
 status_postfix = "_status"
 bestbound_postfix = "_bestbound"
 nbnodes_postfix = "_nbnodes"
-
+ 
 filename_column = "Problem"
 probstat_columns = ["nbvar", "max_dom", "nbconstr", "max_arity"]
-
-
-
-
+ 
+ 
+ 
+ 
 def read_csv_auto(path_or_buffer):
     seps = [None, ",", ";", "\t", r"\s+"]
-
+ 
     # 👉 Handle URL manually
     if isinstance(path_or_buffer, str) and path_or_buffer.startswith("http"):
         try:
@@ -39,22 +39,24 @@ def read_csv_auto(path_or_buffer):
             raise ValueError(f"URL error: {e}")
     else:
         content = path_or_buffer
-
+ 
     for sep in seps:
         try:
+            if hasattr(content, "seek"):
+                content.seek(0)
             df = pd.read_csv(content, sep=sep, engine="python")
             if df.shape[1] > 1:
                 return df
         except:
             continue
-
+ 
     raise ValueError("Could not detect delimiter")
-
-
-
+ 
+ 
+ 
 def safe_get(row, col, default="?"):
     return row[col] if col in row else default
-
+ 
 def compute_dynamic_cutoff(df):
     times = []
     for col in df.columns:
@@ -62,48 +64,38 @@ def compute_dynamic_cutoff(df):
             times.extend(pd.to_numeric(df[col], errors="coerce"))
     times = [t for t in times if pd.notna(t)]
     return float(np.percentile(times, 95)) if times else 1200.0
-
+ 
 def generate_solver_colors(solvers):
     palette = px.colors.qualitative.Plotly
     return {s: palette[i % len(palette)] for i, s in enumerate(solvers)}
-
-
-def generate_solver_colors1(solver_names):
-    palette = px.colors.qualitative.Plotly  # palette propre
-
-    colors = {}
-    for i, s in enumerate(solver_names):
-        colors[s] = palette[i % len(palette)]
-
-    return colors
-
+ 
 # ===================== CLASS =====================
-
+ 
 class SolverResult:
     def __init__(self, bestsol, cputime, status, bestbound="?", nbnodes="?"):
         self.bestsol_text = bestsol
         self.bestsol = float(bestsol) if bestsol != "?" else sys.maxsize
-
+ 
         self.bestbound = None if bestbound == "?" else float(bestbound)
         self.nbnodes = None if nbnodes == "?" else float(nbnodes)
-
+ 
         try:
             self.cputime = float(cputime)
         except:
             self.cputime = default_cutoff
-
+ 
         self.cputime_text = cputime
         self.status = status
-
+ 
     def is_opt(self): return self.status == "OPT" or self.status == "SC"
     def is_feas(self): return self.status.startswith("FEAS") or self.status == "S"
     def is_timeout(self): return self.status == "UNK"
     def is_err(self): return self.cputime_text in ["MZN", "mem", "ARITY", "32-bit"]
     def no_lb(self): return self.bestbound == None
     def no_nodes(self): return self.nbnodes == None
-
+ 
 # ===================== BEST =====================
-
+ 
 def get_best_result(results):
     return min(
         results.values(),
@@ -115,13 +107,13 @@ def get_best_result(results):
             r.nbnodes if not r.no_nodes() else float("inf"),
         )
     )
-
+ 
 # ===================== READ =====================
-
+ 
 def read_results(df):
     solver_names = []
     rows = []
-
+ 
     for col in df.columns:
         if col != filename_column and col not in probstat_columns:
             name = col
@@ -130,11 +122,11 @@ def read_results(df):
                 name = name.replace(s, "")
             if name not in solver_names:
                 solver_names.append(name)
-
+ 
     for _, row in df.iterrows():
         problem = row[filename_column]
         stats = {k: int(row[k]) for k in probstat_columns if k in row}
-
+ 
         results = {}
         for s in solver_names:
             results[s] = SolverResult(
@@ -144,13 +136,13 @@ def read_results(df):
                 safe_get(row, f"{s}{bestbound_postfix}"),
                 safe_get(row, f"{s}{nbnodes_postfix}")
             )
-
+ 
         rows.append((problem, stats, results))
-
+ 
     return solver_names, rows
-
+ 
 def compute_ranking(solver_names, rows):
-
+ 
     # ===================== INIT =====================
     df = pd.DataFrame(index=solver_names)
     df["OPT"] = 0
@@ -159,86 +151,86 @@ def compute_ranking(solver_names, rows):
     df["BB1"] = 0
     df["BB2"] = 0
     df["SCORE"] = 0.0
-
-
-
+ 
+ 
+ 
     # ===================== LOOP =====================
     for _, _, results in rows:
         # filter ONLY selected solvers (IMPORTANT)
         results = {s: results.get(s) for s in solver_names}
         results = {s: r for s, r in results.items() if r is not None}
-
+ 
         if not results:
             continue
         # best solver (for "BEST" column)
         best_solver = get_best_result(
             {s: results[s] for s in solver_names if s in results}
         )
-
+ 
         # best bound (CORRECT metric)
         best_bound = min(
             (r.bestsol for r in results.values() if not r.is_err()),
             default=None
         )
-
+ 
         # solvers proving OPT
         opt_solvers = {s for s, r in results.items() if r.is_opt()}
-
+ 
         for s in solver_names:
-
+ 
             r = results.get(s)
             if r is None or r.is_err():
                 continue
-
+ 
             # ===================== METRICS =====================
             if r == best_solver:
                 df.loc[s, "BEST"] += 1
-
+ 
             if r.is_opt():
                 df.loc[s, "OPT"] += 1
                 df.loc[s, "SCORE"] += 1.0
                 continue
-
+ 
             if r.is_feas():
                 df.loc[s, "FEAS"] += 1
-
-
-
+ 
+ 
+ 
             # ===================== BB SCORE =====================
-
+ 
             if best_bound is not None and r.bestsol == best_bound:
-
+ 
                 if len(opt_solvers) == 0:
                     df.loc[s, "SCORE"] += 1.0   # BB1
                     df.loc[s, "BB1"] += 1  # BB1
                 else:
                     df.loc[s, "SCORE"] += 0.5   # BB2
                     df.loc[s, "BB2"] += 1   # BB2
-
+ 
     # ===================== FINAL SCORE =====================
     df = df.sort_values("SCORE", ascending=False)
-
+ 
     return df
-
-
+ 
+ 
 # ===================== GLOBAL TABLE =====================
-
+ 
 def compute_global_table(solver_names, rows):
     data = []
-
+ 
     for s in solver_names:
         opt = feas = timeout = err = total_time = 0
-
+ 
         for _, _, results in rows:
             r = results[s]
-
+ 
             if r.is_opt(): opt += 1
             elif r.is_feas(): feas += 1
             elif r.is_timeout(): timeout += 1
             elif r.is_err(): err += 1
-
+ 
             total_time += r.cputime
-
+ 
         data.append({
             "solver": s,
             "OPT": opt,
@@ -247,24 +239,24 @@ def compute_global_table(solver_names, rows):
             "Error": err,
             "Total Time": round(total_time,2)
         })
-
+ 
     return pd.DataFrame(data)
-
-
+ 
+ 
 # ===================== HTML TABLES =====================
-
+ 
 def render_stats_table(stats):
     rows = "".join(
         f"<tr><td><b>{k}</b></td><td style='text-align:right'>{v}</td></tr>"
         for k, v in stats.items()
     )
-
+ 
     return f"""
     <table style="width:100%;border:1px solid black;border-collapse:collapse;">
         {rows}
     </table>
     """
-
+ 
 def render_result_table(res, best):
     if res.is_err(): bg = "#FFAFAF"
     elif res.is_timeout(): bg = "#FFDF7F"
@@ -275,7 +267,7 @@ def render_result_table(res, best):
         bg = f"rgba(176,255,0,{alpha})"
     else:
         bg = "white"
-
+ 
     return f"""
     <table style="width:100%;border:1px solid black;background:{bg};">
         <tr><td><b>S</b></td><td>{res.status}</td></tr>
@@ -287,25 +279,25 @@ def render_result_table(res, best):
     """
 def plot_cactus(solvers, rows, use_log=False):
     fig = go.Figure()
-
+ 
     for s in solvers:
         times = []
         problems = []
-
+ 
         for problem, _, results in rows:
             r = results[s]
             if r.is_opt():
                 times.append(r.cputime)
                 problems.append(problem)
-
+ 
         # sort by time
         sorted_pairs = sorted(zip(times, problems), key=lambda x: x[0])
-
+ 
         if not sorted_pairs:
             continue
-
+ 
         times, problems = zip(*sorted_pairs)
-
+ 
         fig.add_trace(go.Scatter(
             x=list(range(1, len(times) + 1)),
             y=list(times),
@@ -320,7 +312,7 @@ def plot_cactus(solvers, rows, use_log=False):
                 "Problem: %{customdata}<br>" +
                 "Time: %{y:.4f}s<extra></extra>"
         ))
-
+ 
     fig.update_layout(
         title="Cactus Plot",
         xaxis_title="Solved Instances",
@@ -329,38 +321,196 @@ def plot_cactus(solvers, rows, use_log=False):
         #width=900,
         height=600
     )
-
+ 
     st.plotly_chart(fig, use_container_width=True)
-
-
-
-
-def plot_nodes(solvers, rows, use_log=False):
-
+ 
+ 
+# ===================== VENN DIAGRAM =====================
+ 
+def plot_venn(solvers, rows, criterion="OPT"):
+    """Venn diagram (2 or 3 solvers) of the instances solved.
+ 
+    criterion = "OPT" -> solved = optimality proven
+    criterion = "ANY" -> solved = OPT or FEAS
+    """
+    if len(solvers) not in (2, 3):
+        st.info("Select 2 or 3 solvers to display the Venn diagram.")
+        return
+ 
+    # ---------- sets of solved instances ----------
+    def solved(r):
+        if r.is_err():
+            return False
+        return r.is_opt() if criterion == "OPT" else (r.is_opt() or r.is_feas())
+ 
+    sets = {
+        s: {problem for problem, _, results in rows if solved(results[s])}
+        for s in solvers
+    }
+ 
+    # ---------- regions: name -> (set of instances, label position) ----------
+    if len(solvers) == 2:
+        a, b = solvers
+        A, B = sets[a], sets[b]
+        regions = {
+            f"{a} only": (A - B, (-0.95, 0.0)),
+            f"{b} only": (B - A, (0.95, 0.0)),
+            f"{a} ∩ {b}": (A & B, (0.0, 0.0)),
+        }
+        centers = {a: (-0.5, 0.0), b: (0.5, 0.0)}
+        label_pos = {a: (-0.9, 1.25), b: (0.9, 1.25)}
+        xr, yr = [-2.0, 2.0], [-1.5, 1.7]
+    else:
+        a, b, c = solvers
+        A, B, C = sets[a], sets[b], sets[c]
+        regions = {
+            f"{a} only": (A - B - C, (-1.05, 0.6)),
+            f"{b} only": (B - A - C, (1.05, 0.6)),
+            f"{c} only": (C - A - B, (0.0, -1.25)),
+            f"{a} ∩ {b}": ((A & B) - C, (0.0, 0.85)),
+            f"{a} ∩ {c}": ((A & C) - B, (-0.55, -0.35)),
+            f"{b} ∩ {c}": ((B & C) - A, (0.55, -0.35)),
+            f"{a} ∩ {b} ∩ {c}": (A & B & C, (0.0, 0.0)),
+        }
+        centers = {a: (-0.6, 0.35), b: (0.6, 0.35), c: (0.0, -0.7)}
+        label_pos = {a: (-1.6, 1.5), b: (1.6, 1.5), c: (0.0, -2.0)}
+        xr, yr = [-2.4, 2.4], [-2.3, 1.9]
+ 
     fig = go.Figure()
-
+ 
+    # circles + solver labels
+    for s, (cx, cy) in centers.items():
+        fig.add_shape(
+            type="circle", xref="x", yref="y",
+            x0=cx - 1, x1=cx + 1, y0=cy - 1, y1=cy + 1,
+            fillcolor=solver_colors[s], opacity=0.35,
+            line=dict(color=solver_colors[s], width=2),
+        )
+        lx, ly = label_pos[s]
+        fig.add_annotation(
+            x=lx, y=ly,
+            text=f"<b>{s}</b><br>({len(sets[s])} solved)",
+            showarrow=False,
+            font=dict(size=14, color=solver_colors[s]),
+        )
+ 
+    # counts per region
+    for _, (items, (x, y)) in regions.items():
+        fig.add_annotation(
+            x=x, y=y, text=f"<b>{len(items)}</b>",
+            showarrow=False, font=dict(size=18),
+        )
+ 
+    crit_label = "OPT" if criterion == "OPT" else "OPT or FEAS"
+    fig.update_layout(
+        title=f"Venn Diagram – instances solved ({crit_label})",
+        xaxis=dict(range=xr, visible=False),
+        yaxis=dict(range=yr, visible=False, scaleanchor="x"),
+        template="plotly_white",
+        height=600,
+        margin=dict(l=10, r=10, t=60, b=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+ 
+    # ---------- details ----------
+    with st.expander("📋 Instances per region"):
+        for name, (items, _) in regions.items():
+            st.markdown(f"**{name}** ({len(items)})")
+            st.write(", ".join(sorted(items)) if items else "—")
+ 
+ 
+# ===================== ANYTIME CURVES (LB / UB) =====================
+ 
+def read_anytime_files(files):
+    """files: uploaded files named <solver>.LB / <solver>.UB (2 columns: time value).
+    Returns {solver: {"LB": df, "UB": df}}."""
+    data = {}
+    for f in files:
+        if "." not in f.name:
+            continue
+        stem, ext = f.name.rsplit(".", 1)
+        ext = ext.upper()
+        if ext not in ("LB", "UB"):
+            continue
+        try:
+            f.seek(0)
+            d = pd.read_csv(f, sep=r"\s+", header=None,
+                            names=["time", "value"], engine="python")
+            d = d.apply(pd.to_numeric, errors="coerce").dropna()
+        except Exception as e:
+            st.warning(f"Could not read {f.name}: {e}")
+            continue
+        data.setdefault(stem, {})[ext] = d
+    return data
+ 
+ 
+def plot_anytime(data, use_log=False):
+    """Step curves (anytime behaviour) of LB (solid) and UB (dashed) per solver."""
+    if not data:
+        st.info("Upload files named <solver>.LB and/or <solver>.UB "
+                "(two columns: normalized time, normalized bound).")
+        return
+ 
+    palette = px.colors.qualitative.Plotly
+    fig = go.Figure()
+ 
+    for i, (s, d) in enumerate(sorted(data.items())):
+        color = solver_colors.get(s, palette[i % len(palette)])
+ 
+        if "LB" in d:
+            fig.add_trace(go.Scatter(
+                x=d["LB"]["time"], y=d["LB"]["value"],
+                mode="lines",
+                line=dict(shape="hv", color=color, width=2),
+                name=f"{s} LB",
+                hovertemplate=f"<b>{s} LB</b><br>time: %{{x:.4f}}<br>value: %{{y:.6f}}<extra></extra>",
+            ))
+        if "UB" in d:
+            fig.add_trace(go.Scatter(
+                x=d["UB"]["time"], y=d["UB"]["value"],
+                mode="lines",
+                line=dict(shape="hv", color=color, width=2, dash="dash"),
+                name=f"{s} UB",
+                hovertemplate=f"<b>{s} UB</b><br>time: %{{x:.4f}}<br>value: %{{y:.6f}}<extra></extra>",
+            ))
+ 
+    fig.update_layout(
+        title="Anytime Curves (LB solid / UB dashed)",
+        xaxis_title="Normalized time",
+        yaxis_title="Normalized bound",
+        xaxis_type="log" if use_log else "linear",
+        template="plotly_white",
+        height=600,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+ 
+ 
+def plot_nodes(solvers, rows, use_log=False):
+ 
+    fig = go.Figure()
+ 
     # ===================== PLOT =====================
     stats = []
-
+ 
     for s in solvers:
-
+ 
         values, problems = [], []
-
+ 
         for problem, _, results in rows:
             r = results.get(s)
             if r is None or r.is_err():
                 continue
-
+ 
             values.append(r.nbnodes)
             problems.append(problem)
-
+ 
         if len(values) == 0:
             continue
-
+ 
         sorted_pairs = sorted(zip(values, problems), key=lambda x: x[0])
         values = [v for v, _ in sorted_pairs]
         problems = [p for _, p in sorted_pairs]
-
+ 
         # trace
         fig.add_trace(go.Scatter(
             x=list(range(1, len(values) + 1)),
@@ -375,7 +525,7 @@ def plot_nodes(solvers, rows, use_log=False):
                 "Problem: %{customdata}<br>" +
                 "Nodes: %{y}<extra></extra>",
         ))
-
+ 
         # ===================== STATS =====================
         stats.append({
             "Solver": s,
@@ -383,7 +533,7 @@ def plot_nodes(solvers, rows, use_log=False):
             "Median Nodes": np.median(values),
             "Std Nodes": np.std(values)
         })
-
+ 
     fig.update_layout(
         title="Nodes Comparison",
         yaxis_type="log" if use_log else "linear",
@@ -392,27 +542,27 @@ def plot_nodes(solvers, rows, use_log=False):
         #width=900,
         height=600
     )
-
+ 
     st.plotly_chart(fig, use_container_width=True)
-
+ 
     # ===================== TABLE =====================
     st.subheader("📊 Nodes Statistics")
-
+ 
     stats_df = pd.DataFrame(stats)
-
+ 
     # formatting for readability
     stats_df["Mean Nodes"] = stats_df["Mean Nodes"].round(2)
     stats_df["Median Nodes"] = stats_df["Median Nodes"].round(2)
     stats_df["Std Nodes"] = stats_df["Std Nodes"].round(2)
-
+ 
     st.dataframe(stats_df, use_container_width=True)
-
+ 
 def plot_objective(solvers, rows, use_log=False):
     fig = go.Figure()
-
+ 
     for s in solvers:
         values, problems = prepare_metric_data(rows, s, "bestsol")
-
+ 
         fig.add_trace(go.Scatter(
             x=list(range(1, len(values) + 1)),
             y=values,
@@ -427,7 +577,7 @@ def plot_objective(solvers, rows, use_log=False):
                 "Problem: %{customdata}<br>" +
                 "Objective: %{y}<extra></extra>",
         ))
-
+ 
     fig.update_layout(
         title="Objective Comparison",
         yaxis_type="log" if use_log else "linear",
@@ -436,15 +586,15 @@ def plot_objective(solvers, rows, use_log=False):
         #width=900,
         height=600
     )
-
+ 
     st.plotly_chart(fig, use_container_width=True)
-
+ 
 def plot_lowerbound(solvers, rows, use_log=False):
     fig = go.Figure()
-
+ 
     for s in solvers:
         values, problems = prepare_metric_data(rows, s, "bestbound")
-
+ 
         fig.add_trace(go.Scatter(
             x=list(range(1, len(values) + 1)),
             y=values,
@@ -459,7 +609,7 @@ def plot_lowerbound(solvers, rows, use_log=False):
                 "Problem: %{customdata}<br>" +
                 "Lower bound: %{y}<extra></extra>",
         ))
-
+ 
     fig.update_layout(
         title="Lower Bound Comparison",
         yaxis_type="log" if use_log else "linear",
@@ -468,106 +618,106 @@ def plot_lowerbound(solvers, rows, use_log=False):
         #width=900,
         height=600
     )
-
+ 
     st.plotly_chart(fig, use_container_width=True)
-
+ 
 def prepare_metric_data(rows, solver, metric):
     values = []
     problems = []
-
+ 
     for problem, _, results in rows:
         r = results[solver]
         if not r.is_err():
             values.append(getattr(r, metric))
             problems.append(problem)
-
+ 
     # sort by value but keep mapping
     sorted_pairs = sorted(zip(values, problems), key=lambda x: x[0])
-
+ 
     if not sorted_pairs:
         return [], []
-
+ 
     values, problems = zip(*sorted_pairs)
     return list(values), list(problems)
-
-
+ 
+ 
 def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
-
-
+ 
+ 
     # ===================== INIT =====================
     win1 = 0
     win2 = 0
     ties = 0
-
+ 
     x_win1, y_win1, p_win1 = [], [], []
     x_win2, y_win2, p_win2 = [], [], []
     x_tie, y_tie, p_tie = [], [], []
-
+ 
     # ===================== DATA =====================
     for problem, _, results in rows:
-
+ 
         r1 = results.get(solver1)
         r2 = results.get(solver2)
-
+ 
         if r1 is None or r2 is None:
             continue
-
+ 
         if r1.is_err() or r2.is_err():
             continue
-
+ 
         v1 = getattr(r1, metric)
         v2 = getattr(r2, metric)
-
+ 
         # skip invalid values (important for log scale)
         if use_log and (v1 <= 0 or v2 <= 0):
             continue
-
+ 
         if metric == "bestbound" :
-
+ 
             if v1 > v2:
                 win1 += 1
                 x_win1.append(v1)
                 y_win1.append(v2)
                 p_win1.append(problem)
-
+ 
             elif v1 < v2:
                 win2 += 1
                 x_win2.append(v1)
                 y_win2.append(v2)
                 p_win2.append(problem)
-
+ 
             else:
                 ties += 1
                 x_tie.append(v1)
                 y_tie.append(v2)
                 p_tie.append(problem)
-
+ 
         else :
             if v1 < v2:
                 win1 += 1
                 x_win1.append(v1)
                 y_win1.append(v2)
                 p_win1.append(problem)
-
+ 
             elif v1 > v2:
                 win2 += 1
                 x_win2.append(v1)
                 y_win2.append(v2)
                 p_win2.append(problem)
-
+ 
             else:
                 ties += 1
                 x_tie.append(v1)
                 y_tie.append(v2)
                 p_tie.append(problem)
-
+ 
     total_points = win1 + win2 + ties
     if total_points == 0:
         st.warning("No data to display")
         return
-
+ 
     fig = go.Figure()
-
+ 
     # ===================== SOLVER1 WINS =====================
     fig.add_trace(go.Scatter(
         x=x_win1,
@@ -585,7 +735,7 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
             f"<b>{solver2}</b>: %{{y}}<br>" +
             "Problem: %{customdata}<extra></extra>",
     ))
-
+ 
     # ===================== SOLVER2 WINS =====================
     fig.add_trace(go.Scatter(
         x=x_win2,
@@ -603,7 +753,7 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
             f"<b>{solver2}</b>: %{{y}}<br>" +
             "Problem: %{customdata}<extra></extra>",
     ))
-
+ 
     # ===================== TIES =====================
     fig.add_trace(go.Scatter(
         x=x_tie,
@@ -621,13 +771,13 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
             f"<b>{solver2}</b>: %{{y}}<br>" +
             "Problem: %{customdata}<extra></extra>",
     ))
-
+ 
     # ===================== DIAGONAL x = y =====================
     all_vals = x_win1 + x_win2 + x_tie + y_win1 + y_win2 + y_tie
-
+ 
     min_val = min(v for v in all_vals if v > 0)
     max_val = max(all_vals)
-
+ 
     fig.add_trace(go.Scatter(
         x=[min_val, max_val],
         y=[min_val, max_val],
@@ -636,7 +786,7 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
         name=f"{solver1} = {solver2}",
         hoverinfo="skip"
     ))
-
+ 
     # ===================== LAYOUT =====================
     fig.update_layout(
         title=f"⚔️ Pairwise: {solver1} vs {solver2} ({metric})",
@@ -649,9 +799,9 @@ def pairwise_plot(rows, solver1, solver2, metric, use_log=False):
         #width=900,
         height=600
     )
-
+ 
     st.plotly_chart(fig, use_container_width=True)
-
+ 
 COLUMN_DESCRIPTIONS = {
     "OPT": "Number of instances where the solver proved optimality (OPT).",
     "FEAS": "Number of instances where the solver found a feasible solution with no optimality proof (FEAS).",
@@ -660,45 +810,45 @@ COLUMN_DESCRIPTIONS = {
     "BB2": "Best bound points (0.5): best bound but optimality proven by another solver.",
     "SCORE": "Global ranking score combining OPT, BB1 and BB2 contributions."
 }
-
+ 
 # ===================== UI =====================
 st.title("🏆 Solver Benchmark Dashboard")
-
+ 
 with st.expander("ℹ️ About this application", expanded=False):
     st.markdown("""
 ## 📌 Overview
 This dashboard compares constraint programming / optimization solvers on benchmark instances.
-
+ 
 You can:
 - Compare solvers globally and pairwise
-- Visualize performance (cactus plot, nodes, objective)
+- Visualize performance (cactus plot, nodes, objective, Venn diagram)
 - Explore detailed per-instance results
 - Rank solvers using multiple scoring rules
-
+ 
 ---
-
+ 
 ## 📂 Input data format
-
+ 
 The input is a CSV file where:
-
+ 
 ### 1. One row = one problem instance
-
+ 
 ### 2. Mandatory column
 - **Problem** (`str`)  
   Name of the instance
-
+ 
 ### 3. Problem statistics columns
 - `nbvar` *(int)* → number of variables  
 - `max_dom` *(int)* → maximum domain size  
 - `nbconstr` *(int)* → number of constraints  
 - `max_arity` *(int)* → maximum constraint arity  
-
+ 
 ---
-
+ 
 ## 🤖 Solver result columns
-
+ 
 Each solver `S` generates multiple columns with suffixes:
-
+ 
 | Column suffix | Meaning | Type |
 |------|--------|------|
 | `S_bestsol` | Best objective value found | float |
@@ -706,21 +856,21 @@ Each solver `S` generates multiple columns with suffixes:
 | `S_status` | Execution status (OPT, FEAS, UNK, etc.) | string |
 | `S_bestbound` | Best lower bound | float |
 | `S_nbnodes` | Search tree nodes | int |
-
+ 
 ---
-
+ 
 ## 📊 Status meaning
-
+ 
 - **OPT** → Optimal solution proven  
 - **FEAS** → Feasible solution found  
 - **UNK** → Timeout or no result  
 - **ERROR** → Runtime or parsing issue  
-
+ 
 ---
-
-
+ 
+ 
 ## ⚙️ How to use the app
-
+ 
 1. Upload a CSV or load default dataset
 2. Select solvers in the sidebar
 3. Filter problems if needed
@@ -728,87 +878,88 @@ Each solver `S` generates multiple columns with suffixes:
    - 📈 Cactus plot (performance)
    - 🎯 Objective evolution
    - 🌳 Nodes / bounds (if available)
+   - 🔵 Venn diagram (instances solved by 2 or 3 solvers)
 5. Compare solvers pairwise
 6. Check global ranking
-
+ 
 ---
-
+ 
 ## 🔗 Competition
-
+ 
 Results are comparable with:
-
+ 
 👉  global ranking
-
+ 
 Solvers are compared using:
 - **OPT** = Optimal solution  
 - **FEAS** = Feasilbe solution with no optimality proof   
 - **BEST**  = Number of instances where the solver was the best according to (STATUS > OBJECTIVE > TIME > LOWER BOUND > NB NODES)
-
-
+ 
+ 
 👉 XCSP3 Competition  
 https://www.xcsp.org/competitions/
-
+ 
 Solvers are ranked using:
 - **OPT** = Optimal solution  +1
 - **BB1** = best bound with no optimality proof by others  → +1
 - **BB2**  = best bound but optimality proven by another solver  → +0.5
-
-
+ 
+ 
 """)
-
+ 
 # ===================== DATA =====================
-
+ 
 st.markdown("### 📂 Data Source")
-
+ 
 data_choice = st.radio(
     "Choose data source:",
     ["Upload my data", "Use default dataset", "From URL"]
 )
-
+ 
 df = None
-
+ 
 # ===================== UPLOAD =====================
 if data_choice == "Upload my data":
     file = st.file_uploader("Upload CSV", type=["csv"])
     if file:
         df = read_csv_auto(file)
-
+ 
 # ===================== DEFAULT =====================
 elif data_choice == "Use default dataset":
-
+ 
     problems = {
         "Quadratic Assignment Problem (QAP)": "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/QAP_results1.csv",
         "Lotsizing Problem": "https://raw.githubusercontent.com/sewaguidio/Stage-INRAE/main/Lotsizing_results.csv"
     }
-
+ 
     selected_problem = st.selectbox(
         "Choose a problem",
         list(problems.keys())
     )
-
+ 
     url = problems[selected_problem]
-
+ 
     st.info(f"Using dataset for: {selected_problem}")
-
+ 
     df = read_csv_auto(url)
-
+ 
 # ===================== CUSTOM URL =====================
 elif data_choice == "From URL":
     url_input = st.text_input("Enter CSV URL")
-
+ 
     if url_input:
         try:
             # fix common encoding issue
             url_input = url_input.replace("%5C~", "~").replace("\\~", "~")
-
+ 
             df = read_csv_auto(url_input)
             st.success("Dataset loaded successfully")
         except Exception as e:
             st.error(f"Failed to load CSV: {e}")
-
-
+ 
+ 
 # ===================== MAIN APP =====================
-
+ 
 if df is not None:
     auto_cutoff = compute_dynamic_cutoff(df)
     default_cutoff = st.sidebar.number_input(
@@ -816,35 +967,35 @@ if df is not None:
         value=float(auto_cutoff)
     )
     solver_names, rows = read_results(df)
-
+ 
     st.success(f"Loaded {len(rows)} instances and {len(solver_names)} solvers")
-
+ 
     # ===================== SIDEBAR =====================
-
+ 
     solver_colors = generate_solver_colors(solver_names)
-
+ 
     # -------- SOLVER CHECKBOXES --------
     st.sidebar.markdown("### 🧠 Select Solvers")
-
-
-
+ 
+ 
+ 
     selected_solvers = []
-
+ 
     for s in solver_names:
         checked = st.sidebar.checkbox(s, value=True)
         if checked:
             selected_solvers.append(s)
-
+ 
     # safety
     if len(selected_solvers) == 0:
         st.warning("Please select at least one solver")
         st.stop()
-
+ 
     st.sidebar.markdown(f"✔️ {len(selected_solvers)} solver(s) active")
-
-
+ 
+ 
     st.subheader("🎨 Solver Colors")
-
+ 
     st.markdown(
         "<div style='display:flex;flex-wrap:wrap;gap:10px;'>"
         + "".join([
@@ -855,159 +1006,189 @@ if df is not None:
         + "</div>",
         unsafe_allow_html=True
     )
-    # -------- SOLVER CHECKBOXES --------
+    # -------- OPTIONS --------
     st.sidebar.markdown("### 📊 Options")
     use_log = st.sidebar.checkbox("📊 Log scale (all plots)", value=False)
     exp = st.sidebar.checkbox("📊 Table expande", value=False)
-
+ 
     # -------- SEARCH --------
     st.sidebar.markdown("### 🔍 Filter")
-
+ 
     search_problem = st.sidebar.text_input("Search problem name")
-
+ 
     # -------- FILTER ROWS --------
     filtered_rows = []
-
+ 
     for problem, stats, results in rows:
-
+ 
         if search_problem and search_problem.lower() not in problem.lower():
             continue
-
+ 
         filtered_rows.append((problem, stats, results))
-
+ 
     if len(filtered_rows) == 0 : 
             for problem, stats, results in rows:
-
+ 
                 filtered_rows.append((problem, stats, results))
-
+ 
     # ===================== GLOBAL BEST PER ROW =====================
-
+ 
     def get_best_dynamic(results):
         return get_best_result({s: results[s] for s in selected_solvers})
-
+ 
     # ===================== KPI =====================
-
+ 
     st.markdown("### 📌 Overview")
-
+ 
     col1, col2, col3 = st.columns(3)
-
+ 
     col1.metric("Problems", len(filtered_rows))
     col2.metric("Active Solvers", len(selected_solvers))
     col3.metric("Total Runs", len(filtered_rows) * len(selected_solvers))
-
-    # ===================== CACTUS =====================
-
-     # Detect optional columns
-    has_bestbound = any(col.endswith(bestbound_postfix) for col in df.columns)
-    has_nbnodes = any(col.endswith(nbnodes_postfix) for col in df.columns)
-
-    cols = ["cputime", "bestsol"]
-    tables = ["📈 Cactus Plot", "🎯 Objective"]
-    if has_bestbound :
-        cols.append("bestbound")
-        tables.append("🌳 Nodes")
-    if has_nbnodes :
-        cols.append("nbnodes")
-        tables.append("📉 Lower Bound")
-        
+ 
     # ===================== ADVANCED PLOTS =====================
-
+ 
+    # Detect optional columns
     has_bestbound = any(col.endswith(bestbound_postfix) for col in df.columns)
     has_nbnodes = any(col.endswith(nbnodes_postfix) for col in df.columns)
-
+ 
     cols = ["cputime", "bestsol"]
     tables = ["📈 Cactus Plot", "🎯 Objective"]
-
+ 
     if has_nbnodes:
         cols.append("nbnodes")
         tables.append("🌳 Nodes")
-
+ 
     if has_bestbound:
         cols.append("bestbound")
         tables.append("📉 Lower Bound")
-
-    # ===================== ADVANCED PLOTS =====================
-
+ 
+    tables.append("🔵 Venn")
+    tables.append("⏱ Anytime")
+ 
     st.subheader("📊 Advanced Analysis")
-
+ 
     tabs = st.tabs(tables)
-
+ 
     tab_idx = 0
-
+ 
     # --- Cactus ---
     with tabs[tab_idx]:
         plot_cactus(selected_solvers, filtered_rows, use_log)
     tab_idx += 1
-
+ 
     # --- Objective ---
     with tabs[tab_idx]:
         plot_objective(selected_solvers, filtered_rows, use_log)
     tab_idx += 1
-
+ 
     # --- Nodes (optional) ---
     if has_nbnodes:
         with tabs[tab_idx]:
             plot_nodes(selected_solvers, filtered_rows, use_log)
         tab_idx += 1
-
+ 
     # --- Lower Bound (optional) ---
     if has_bestbound:
         with tabs[tab_idx]:
             plot_lowerbound(selected_solvers, filtered_rows, use_log)
         tab_idx += 1
-
-
+ 
+    # --- Venn ---
+    with tabs[tab_idx]:
+        venn_solvers = st.multiselect(
+            "Solvers (2 or 3)",
+            selected_solvers,
+            default=selected_solvers[:3],
+            max_selections=3,
+            key="venn_solvers",
+        )
+        venn_crit = st.radio(
+            "Solved means",
+            ["OPT", "OPT or FEAS"],
+            horizontal=True,
+            key="venn_crit",
+        )
+        plot_venn(
+            venn_solvers,
+            filtered_rows,
+            "OPT" if venn_crit == "OPT" else "ANY",
+        )
+    tab_idx += 1
+ 
+    # --- Anytime (LB / UB) ---
+    with tabs[tab_idx]:
+        anytime_files = st.file_uploader(
+            "Upload <solver>.LB and <solver>.UB files (e.g. ri.LB, ri.UB)",
+            accept_multiple_files=True,
+            key="anytime_files",
+        )
+        anytime_data = read_anytime_files(anytime_files) if anytime_files else {}
+ 
+        if anytime_data:
+            anytime_solvers = st.multiselect(
+                "Solvers",
+                sorted(anytime_data.keys()),
+                default=sorted(anytime_data.keys()),
+                key="anytime_solvers",
+            )
+            anytime_data = {s: anytime_data[s] for s in anytime_solvers}
+ 
+        plot_anytime(anytime_data, use_log)
+    tab_idx += 1
+ 
+ 
     # ===================== RANKING =====================
-
+ 
     st.subheader("⚔️ Pairwise Comparison")
-
+ 
     col1, col2, col3 = st.columns(3)
-
+ 
     with col1:
         solver1 = st.selectbox("Solver 1", selected_solvers)
-
+ 
     with col2:
         solver2 = st.selectbox("Solver 2", selected_solvers, index=1 if len(selected_solvers) > 1 else 0)
-
+ 
     with col3:
         metric = st.selectbox(
             "Metric",
             cols
         )
-
-
+ 
+ 
     if solver1 != solver2:
         pairwise_plot(filtered_rows, solver1, solver2, metric, use_log)
-
-
-
+ 
+ 
+ 
  # ===================== GLOBAL TABLE =====================
     st.subheader("📊 Global Comparison")
-
+ 
     st.markdown("""
     <table class="resultstable">
     <tr><th class='title'>Key</th><th>Meaning</th></tr>
-
+ 
     <tr><td class='title'>OPT</td><td>Number of instances where the solver proved optimality (OPT status).</td></tr>
-
+ 
     <tr><td class='title'>FEAS</td><td>Number of instances where the solver found a feasible solution without proving optimality.</td></tr>
-
+ 
     <tr><td class='title'>Timeout</td><td>Number of instances where the solver did not finish within the time limit.</td></tr>
-
+ 
     <tr><td class='title'>Error</td><td>Number of instances where the solver failed due to runtime or parsing errors.</td></tr>
-
+ 
     <tr><td class='title'>Total Time</td><td>Total CPU time spent by the solver across all instances.</td></tr>
-
+ 
     <tr><td class='title'>Best</td><td>Number of instances where the solver was the best performer according to STATUS > OBJECTIVE VALUE > CPU TIME > LOWER BOUND > NB NODES.</td></tr>
-
+ 
     </table>
     <br>
     """, unsafe_allow_html=True)
-
+ 
     global_df = compute_global_table(selected_solvers, filtered_rows)
-
+ 
     ranking_df = compute_ranking(selected_solvers, filtered_rows)
-
+ 
     # 👉 ADD ONLY BEST COLUMN
     global_df = global_df.merge(
         ranking_df[["BEST"]],
@@ -1015,22 +1196,22 @@ if df is not None:
         right_index=True,
         how="left"
     )
-
+ 
     colA, colB = st.columns([2, 1])
-
+ 
     with colA:
         search_solver = st.text_input("🔎 Search solver")
-
+ 
     with colB:
         sort_col = st.selectbox("Sort by", global_df.columns)
-
+ 
     if search_solver:
         global_df = global_df[
             global_df["solver"].str.contains(search_solver, case=False)
         ]
-
+ 
     global_df = global_df.sort_values(sort_col, ascending=False)
-
+ 
     st.dataframe(
         global_df,
         use_container_width=True,
@@ -1043,14 +1224,14 @@ if df is not None:
         }
     )
     # ===================== XCSP3 =====================
-
+ 
     st.subheader("🏆 XCSP3 Competition Ranking")
-
+ 
     st.markdown(
         "🔗 Official competition website: "
         "[XCSP3 Competition](https://www.xcsp.org/competitions/)"
     )
-
+ 
     st.markdown("""
 <table class="resultstable">
 <tr><th class='title'>Key</th><th>Meaning</th></tr>
@@ -1061,7 +1242,7 @@ if df is not None:
 </table>
 <br>
 """, unsafe_allow_html=True)
-
+ 
     ranking_df = compute_ranking(selected_solvers, filtered_rows)
     ranking_df = ranking_df.drop(columns=["BEST","FEAS"], errors="ignore")
     st.dataframe(
@@ -1075,11 +1256,11 @@ if df is not None:
             for col in ranking_df.columns
         }
     )
-
+ 
     # ===================== LEGEND =====================
-
+ 
     st.subheader("🎨 Legend")
-
+ 
     st.markdown("""
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <div style="background:#00FF00;padding:6px;border-radius:5px;">🏆 Best SOL</div>
@@ -1089,10 +1270,10 @@ if df is not None:
         <div style="background:#FFAFAF;padding:6px;border-radius:5px;">❌ Error</div>
     </div>
     """, unsafe_allow_html=True)
-
+ 
     # ===================== RESULTS =====================
     st.subheader("📋 Detailed Results")
-
+ 
     st.markdown("""
 <table class="resultstable">
 <tr><th class='title'>Key</th><th>Meaning</th></tr>
@@ -1108,60 +1289,61 @@ UNK: No solution returned
 </table>
 <br>
 """, unsafe_allow_html=True)
-
+ 
     
 # ===================== PAGINATION =====================
-
+ 
     if "display_limit" not in st.session_state:
         st.session_state.display_limit = 20
-
+ 
     display_limit = st.session_state.display_limit
-
+ 
     visible_rows = filtered_rows[:display_limit]
-
+ 
     # ===================== DISPLAY =====================
-
+ 
     for problem, stats, results in visible_rows:
-
+ 
         best = get_best_result({s: results[s] for s in selected_solvers})
-
+ 
         with st.expander(f"🔎 {problem}", expanded=exp):
-
+ 
             col1, col2 = st.columns([1, 2])
-
+ 
             with col1:
                 st.markdown("**Stats**")
                 st.markdown(render_stats_table(stats), unsafe_allow_html=True)
-
+ 
             with col2:
                 st.markdown("**Best Solver (selected set)**")
                 st.markdown(
                     render_result_table(best, best),
                     unsafe_allow_html=True
                 )
-
+ 
             st.markdown("### ⚙️ Solvers")
-
-            cols = st.columns(len(selected_solvers))
-
+ 
+            solver_cols = st.columns(len(selected_solvers))
+ 
             for i, s in enumerate(selected_solvers):
-                with cols[i]:
+                with solver_cols[i]:
                     st.markdown(f"**{s}**")
                     st.markdown(
                         render_result_table(results[s], best),
                         unsafe_allow_html=True
                     )
-
+ 
     # ===================== LOAD MORE =====================
-
+ 
     if display_limit < len(filtered_rows):
-
+ 
         if st.button("Load 20 more"):
             st.session_state.display_limit += 20
             st.rerun()
-
+ 
     else:
         st.info("All results loaded")
-        display_limit =len(filtered_rows)
-
+        display_limit = len(filtered_rows)
+ 
     st.caption(f"Showing {display_limit} / {len(filtered_rows)} problems")
+ 
